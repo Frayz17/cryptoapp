@@ -46,9 +46,7 @@
               />
             </div>
 
-            <div
-              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
-            >
+            <div class="flex bg-white shadow-md p-1 rounded-md flex-wrap">
               <span
                 v-for="coin in coinsSuggestions"
                 :key="coin.Id"
@@ -209,7 +207,8 @@ export default {
 
         const newTicker = {
           name: ticker,
-          price: "-"
+          price: "-",
+          _intervalLink: null
         };
 
         this.embedNewTicker(newTicker);
@@ -217,8 +216,7 @@ export default {
     },
 
     embedNewTicker(newTicker) {
-      this.tickers.push(newTicker);
-      setInterval(async () => {
+      newTicker._intervalLink = setInterval(async () => {
         const f = await fetch(
           `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD&api_key=a4251cf226aa5d888b03a310e2bd598d6f4752ca6ca145cae75ba46091f25601`
         );
@@ -231,11 +229,19 @@ export default {
           this.graph.push(data.USD);
         }
       }, 5000);
+      this.tickers.push(newTicker);
       this.ticker = "";
     },
 
     handleDelete(tickerToRemove) {
-      this.tickers = this.tickers.filter(t => t !== tickerToRemove);
+      this.tickers = this.tickers.filter(t => {
+        if (t === tickerToRemove) {
+          clearInterval(t._intervalLink);
+          t._intervalLink = null;
+        }
+        return t !== tickerToRemove;
+      });
+
       if (tickerToRemove === this.sel) {
         this.sel = null;
       }
