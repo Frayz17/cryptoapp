@@ -1,7 +1,32 @@
 <template>
   <div class="container mx-auto flex flex-col items-center bg-gray-100 p-4">
+    <div
+      v-if="loading"
+      class="fixed w-100 h-100 opacity-80 bg-purple-800 inset-0 z-50 flex items-center justify-center"
+    >
+      <svg
+        class="animate-spin -ml-1 mr-3 h-12 w-12 text-white"
+        xmlns="http://www.w3.org/2000/svg"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          class="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          stroke-width="4"
+        ></circle>
+        <path
+          class="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        ></path>
+      </svg>
+    </div>
+
     <div class="container">
-      <div class="w-full my-4"></div>
       <section>
         <div class="flex">
           <div class="max-w-xs">
@@ -11,7 +36,8 @@
             <div class="mt-1 relative rounded-md shadow-md">
               <input
                 v-model="ticker"
-                @keydown.enter="add"
+                @keydown.enter="add(ticker)"
+                @keyup="handleCoinsSuggestions"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -19,10 +45,26 @@
                 placeholder="Например DOGE"
               />
             </div>
+
+            <div
+              class="flex bg-white shadow-md p-1 rounded-md shadow-md flex-wrap"
+            >
+              <span
+                v-for="coin in coinsSuggestions"
+                :key="coin.Id"
+                @click="add(coin.Symbol)"
+                class="inline-flex items-center px-2 m-1 rounded-md text-xs font-medium bg-gray-300 text-gray-800 cursor-pointer"
+              >
+                {{ coin.Symbol }}
+              </span>
+            </div>
+            <div v-if="validations.isCoinExist" class="text-sm text-red-600">
+              Такой тикер уже добавлен
+            </div>
           </div>
         </div>
         <button
-          @click="add"
+          @click="add(ticker)"
           type="button"
           class="my-4 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
         >
@@ -139,28 +181,53 @@ export default {
       ticker: "",
       tickers: [],
       sel: null,
-      graph: []
+      graph: [],
+      coinsList: {},
+      coinsSuggestions: [],
+      validations: {
+        isCoinExist: false
+      },
+      loading: true
     };
   },
 
-  methods: {
-    add() {
-      const currentTicker = {
-        name: this.ticker,
-        price: "-"
-      };
+  created() {
+    this.getCoinsList();
+  },
 
-      this.tickers.push(currentTicker);
+  methods: {
+    add(ticker) {
+      const isExist = this.tickers
+        .map(t => t.name.toLowerCase())
+        .includes(ticker.toLowerCase());
+
+      if (isExist) {
+        this.validations.isCoinExist = true;
+        this.ticker = ticker;
+      } else {
+        this.resetCoinValidation();
+
+        const newTicker = {
+          name: ticker,
+          price: "-"
+        };
+
+        this.embedNewTicker(newTicker);
+      }
+    },
+
+    embedNewTicker(newTicker) {
+      this.tickers.push(newTicker);
       setInterval(async () => {
         const f = await fetch(
-          `https://min-api.cryptocompare.com/data/price?fsym=${currentTicker.name}&tsyms=USD&api_key=a4251cf226aa5d888b03a310e2bd598d6f4752ca6ca145cae75ba46091f25601`
+          `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD&api_key=a4251cf226aa5d888b03a310e2bd598d6f4752ca6ca145cae75ba46091f25601`
         );
 
         const data = await f.json();
-        this.tickers.find(t => t.name === currentTicker.name).price =
-          data.USD > 1 ? data.USD.toFixed(2) : data.USD.toPrecision(2);
+        this.tickers.find(t => t.name === newTicker.name).price =
+          data.USD > 1 ? data.USD.toFixed(2) : data?.USD?.toPrecision(2);
 
-        if (this.sel?.name === currentTicker.name) {
+        if (this.sel?.name === newTicker.name) {
           this.graph.push(data.USD);
         }
       }, 5000);
@@ -186,6 +253,44 @@ export default {
       return this.graph.map(
         price => 5 + ((price - minValue) * 95) / (maxValue - minValue)
       );
+    },
+
+    handleCoinsSuggestions() {
+      this.resetCoinValidation();
+
+      if (this.ticker === "") return;
+
+      for (const coin in this.coinsList) {
+        const symbol = this.coinsList[coin].Symbol.toLowerCase();
+        const fullName = this.coinsList[coin].FullName.toLowerCase();
+        const formattedTicker = this.ticker.toLowerCase();
+
+        if (
+          symbol.includes(formattedTicker) ||
+          fullName.includes(formattedTicker)
+        ) {
+          if (this.coinsSuggestions.length < 4) {
+            this.coinsSuggestions.push(this.coinsList[coin]);
+          }
+        }
+      }
+    },
+
+    resetCoinValidation() {
+      this.coinsSuggestions = [];
+      this.validations.isCoinExist = false;
+    },
+
+    async getCoinsList() {
+      this.loading = true;
+
+      const f = await fetch(
+        "https://min-api.cryptocompare.com/data/all/coinlist?summary=true"
+      );
+      const { Data } = await f.json();
+      this.coinsList = Data;
+
+      this.loading = false;
     }
   }
 };
