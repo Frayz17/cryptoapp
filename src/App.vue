@@ -37,7 +37,6 @@
               <input
                 v-model="ticker"
                 @keydown.enter="add(ticker)"
-                @keyup="handleCoinsSuggestions"
                 type="text"
                 name="wallet"
                 id="wallet"
@@ -81,13 +80,39 @@
           </svg>
           Добавить
         </button>
+        <div>
+          <hr />
+          <div>
+            Фильтр:
+            <input
+              class="mt-4 ml-2 pr-10 border-gray-300 text-gray-900 focus:outline-none focus:ring-gray-500 focus:border-gray-500 sm:text-sm rounded-md"
+              v-model="filter"
+              type="text"
+            />
+          </div>
+
+          <button
+            @click="page -= 1"
+            v-if="page > 1"
+            class="my-4 mr-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+          >
+            Назад
+          </button>
+          <button
+            @click="page += 1"
+            v-if="hasNextPage"
+            class="my-4 mx-2 inline-flex items-center py-2 px-4 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-full text-white bg-gray-600 hover:bg-gray-700 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+          >
+            Вперед
+          </button>
+        </div>
       </section>
 
       <template v-if="tickers.length">
         <hr class="w-full border-t border-gray-600 my-4" />
         <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-3">
           <div
-            v-for="t in tickers"
+            v-for="t in filteredTickers()"
             :key="t.name"
             @click="select(t)"
             :class="{
@@ -182,6 +207,9 @@ export default {
       graph: [],
       coinsList: {},
       coinsSuggestions: [],
+      filter: "",
+      page: 1,
+      hasNextPage: true,
       validations: {
         isCoinExist: false
       },
@@ -190,7 +218,50 @@ export default {
   },
 
   created() {
+    const windowData = Object.fromEntries(
+      new URL(window.location).searchParams.entries()
+    );
+
+    if (windowData.filter) {
+      this.filter = windowData.filter;
+    }
+
+    if (windowData.page) {
+      this.page = windowData.page;
+    }
+
     this.getCoinsList();
+    const coinsData = window.localStorage.getItem("coins");
+
+    if (coinsData) {
+      this.tickers = JSON.parse(coinsData);
+      this.tickers.forEach(ticker => {
+        this.subscribeToUpdates(ticker);
+      });
+    }
+  },
+
+  watch: {
+    filter() {
+      this.page = 1;
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
+    },
+
+    page() {
+      window.history.pushState(
+        null,
+        document.title,
+        `${window.location.pathname}?filter=${this.filter}&page=${this.page}`
+      );
+    },
+
+    ticker() {
+      this.handleCoinsSuggestions();
+    }
   },
 
   methods: {
@@ -211,11 +282,28 @@ export default {
           _intervalLink: null
         };
 
-        this.embedNewTicker(newTicker);
+        this.ticker = "";
+        this.filter = "";
+        this.tickers.push(newTicker);
+        window.localStorage.setItem("coins", JSON.stringify(this.tickers));
+        this.subscribeToUpdates(newTicker);
       }
     },
 
-    embedNewTicker(newTicker) {
+    filteredTickers() {
+      const start = (this.page - 1) * 3;
+      const end = this.page * 3;
+
+      const filteredTickers = this.tickers.filter(t =>
+        t.name.toLowerCase().includes(this.filter)
+      );
+
+      this.hasNextPage = filteredTickers.length > end;
+
+      return filteredTickers.slice(start, end);
+    },
+
+    subscribeToUpdates(newTicker) {
       newTicker._intervalLink = setInterval(async () => {
         const f = await fetch(
           `https://min-api.cryptocompare.com/data/price?fsym=${newTicker.name}&tsyms=USD&api_key=a4251cf226aa5d888b03a310e2bd598d6f4752ca6ca145cae75ba46091f25601`
@@ -229,8 +317,6 @@ export default {
           this.graph.push(data.USD);
         }
       }, 5000);
-      this.tickers.push(newTicker);
-      this.ticker = "";
     },
 
     handleDelete(tickerToRemove) {
@@ -242,6 +328,7 @@ export default {
         return t !== tickerToRemove;
       });
 
+      window.localStorage.setItem("coins", JSON.stringify(this.tickers));
       if (tickerToRemove === this.sel) {
         this.sel = null;
       }
@@ -266,9 +353,9 @@ export default {
 
       if (this.ticker === "") return;
 
-      for (const coin in this.coinsList) {
-        const symbol = this.coinsList[coin].Symbol.toLowerCase();
-        const fullName = this.coinsList[coin].FullName.toLowerCase();
+      Object.entries(this.coinsList).forEach(([, coin]) => {
+        const symbol = coin.Symbol.toLowerCase();
+        const fullName = coin.FullName.toLowerCase();
         const formattedTicker = this.ticker.toLowerCase();
 
         if (
@@ -276,10 +363,10 @@ export default {
           fullName.includes(formattedTicker)
         ) {
           if (this.coinsSuggestions.length < 4) {
-            this.coinsSuggestions.push(this.coinsList[coin]);
+            this.coinsSuggestions.push(coin);
           }
         }
-      }
+      });
     },
 
     resetCoinValidation() {
